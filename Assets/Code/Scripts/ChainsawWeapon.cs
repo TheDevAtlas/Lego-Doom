@@ -36,6 +36,9 @@ public class ChainsawWeapon : MonoBehaviour
     public string sliceAnimationTrigger = "Slice"; // Animation trigger name
     public AudioSource chainsawAudio; // Audio source for chainsaw sounds
 
+    [Header("Rotation Fix")]
+    public float rotationOffset = -90f; // Fixed: rotate 90 degrees in the other direction
+
     [Header("Visualization")]
     public bool showTargeting = true;
     public KeyCode toggleVisualizationKey = KeyCode.R;
@@ -72,8 +75,8 @@ public class ChainsawWeapon : MonoBehaviour
         
         if (playerController == null)
         {
-            // Try to find common player controller types
-            playerController = playerTransform.GetComponent<FirstPersonController>() as MonoBehaviour;
+            // Try to find the FirstPersonController component
+            playerController = playerTransform.GetComponent<FirstPersonController>();
         }
 
         // Create visualization objects
@@ -284,12 +287,15 @@ public class ChainsawWeapon : MonoBehaviour
 
     IEnumerator FaceTarget(GameObject target)
     {
-        Vector3 targetDirection = (target.transform.position - playerTransform.position).normalized;
-        targetDirection.y = 0; // Keep rotation only on Y axis
+        Vector3 directionToTarget = (target.transform.position - playerTransform.position).normalized;
+        directionToTarget.y = 0; // Keep rotation only on Y axis (horizontal plane)
         
-        Quaternion targetRotation = Quaternion.LookRotation(targetDirection);
+        // Apply rotation offset to fix the 90-degree issue
+        Quaternion targetRotation = Quaternion.LookRotation(directionToTarget) * Quaternion.Euler(0, rotationOffset, 0);
         
-        while (Quaternion.Angle(playerTransform.rotation, targetRotation) > 1f)
+        float rotationThreshold = 1f;
+        
+        while (Quaternion.Angle(playerTransform.rotation, targetRotation) > rotationThreshold)
         {
             playerTransform.rotation = Quaternion.Slerp(playerTransform.rotation, targetRotation, faceTargetSpeed * Time.deltaTime);
             yield return null;
@@ -464,21 +470,20 @@ public class ChainsawWeapon : MonoBehaviour
 
     void DisablePlayerControl()
     {
-        if (playerController != null)
-        {
-            playerController.enabled = false;
-            playerControlDisabled = true;
-            Debug.Log("Player control disabled for chainsaw slice");
-        }
+        // DO NOT disable any components to avoid deletion issues
+        // Just set the flag for tracking state
+        playerControlDisabled = true;
+        Debug.Log("Player control disabled for chainsaw slice (no components actually disabled)");
     }
 
     void EnablePlayerControl()
     {
-        if (playerController != null && playerControlDisabled)
+        // DO NOT re-enable any components to avoid issues
+        // Just reset the flag
+        if (playerControlDisabled)
         {
-            playerController.enabled = true;
             playerControlDisabled = false;
-            Debug.Log("Player control re-enabled after chainsaw slice");
+            Debug.Log("Player control re-enabled after chainsaw slice (no components actually changed)");
         }
     }
 

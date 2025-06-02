@@ -6942,6 +6942,10 @@ PrefabInstance:
       propertyPath: weaponController
       value: 
       objectReference: {fileID: 117618313}
+    - target: {fileID: 6822142227184570173, guid: cbadc2bb2ba19564689960d0d6e66b0e, type: 3}
+      propertyPath: enemyLayerMask.m_Bits
+      value: 64
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
