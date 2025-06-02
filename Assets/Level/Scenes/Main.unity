@@ -2397,7 +2397,7 @@ MonoBehaviour:
   bfgProjectilePrefab: {fileID: 0}
   projectileSpeed: 20
   maxProjectileDistance: 100
-  raycastDistance: 15
+  raycastDistance: 25
   enemyDestructionTime: 3
   enemyLayerMask:
     serializedVersion: 2
