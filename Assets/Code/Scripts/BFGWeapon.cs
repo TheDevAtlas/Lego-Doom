@@ -30,11 +30,13 @@ public class BFGWeapon : MonoBehaviour
     public Vector3 randomRotationMin = Vector3.zero;
     public Vector3 randomRotationMax = new Vector3(360f, 360f, 360f);
 
-    [Header("Visualization")]
-    public bool showRaycast = true;
-    public KeyCode toggleRaycastKey = KeyCode.R;
-    public Material enemyRayMaterial;
-    public LayerMask playerLayerMask = 1;
+    [Header("Enemy Connection Lightning")]
+    public GameObject lightningQuadPrefab; // Lightning quad prefab (2 units long)
+    public float quadLength = 2f; // Length of each lightning quad
+    public Material[] lightningMaterials = new Material[4]; // 4 different lightning materials
+    public float materialChangeInterval = 0.3f; // Time in seconds between material changes
+    public bool showConnections = true; // Toggle to show/hide connection lightning
+    public KeyCode toggleConnectionsKey = KeyCode.R; // Key to toggle connection visibility
 
     [Header("Input")]
     public KeyCode fireKey = KeyCode.Mouse0;
@@ -76,19 +78,34 @@ public class BFGWeapon : MonoBehaviour
             }
         }
 
-        // Create default enemy ray material if not assigned
-        if (enemyRayMaterial == null)
-            enemyRayMaterial = CreateURPMaterial(Color.cyan);
+        // Validate lightning quad prefab assignment
+        if (lightningQuadPrefab == null)
+        {
+            Debug.LogWarning($"Lightning quad prefab not assigned for weapon {gameObject.name}.");
+        }
+
+        // Validate lightning materials
+        if (lightningMaterials == null || lightningMaterials.Length == 0)
+        {
+            Debug.LogWarning($"No lightning materials assigned for weapon {gameObject.name}.");
+        }
+
+        // Validate BFG prefab assignment
+        if (bfgProjectilePrefab == null)
+        {
+            Debug.LogWarning($"BFG projectile prefab not assigned for weapon {gameObject.name}. Will use default sphere.");
+        }
     }
 
     void Update()
     {
         fireTimer += Time.deltaTime;
 
-        // Handle raycast toggle
-        if (Input.GetKeyDown(toggleRaycastKey))
+        // Handle connection lightning toggle
+        if (Input.GetKeyDown(toggleConnectionsKey))
         {
-            showRaycast = !showRaycast;
+            showConnections = !showConnections;
+            UpdateAllConnectionVisibility();
         }
 
         // Update all active projectiles
@@ -124,22 +141,6 @@ public class BFGWeapon : MonoBehaviour
     Vector3 GetShootStartPoint()
     {
         return shootPoint != null ? shootPoint.position : transform.position;
-    }
-
-    Material CreateURPMaterial(Color color)
-    {
-        Shader shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
-        Material mat = new Material(shader);
-        mat.color = color;
-        
-        if (mat.HasProperty("_BaseColor"))
-            mat.SetColor("_BaseColor", color);
-        if (mat.HasProperty("_Metallic"))
-            mat.SetFloat("_Metallic", 0.0f);
-        if (mat.HasProperty("_Smoothness"))
-            mat.SetFloat("_Smoothness", 0.5f);
-
-        return mat;
     }
 
     void UpdateProjectiles()
@@ -184,10 +185,6 @@ public class BFGWeapon : MonoBehaviour
         
         foreach (Collider enemyCollider in nearbyObjects)
         {
-            // Skip if it's the player
-            if (((1 << enemyCollider.gameObject.layer) & playerLayerMask) != 0)
-                continue;
-                
             string enemyId = enemyCollider.GetInstanceID().ToString();
             currentTargetIds.Add(enemyId);
             
@@ -227,8 +224,8 @@ public class BFGWeapon : MonoBehaviour
                     };
                 }
                 
-                // Create/update visualization
-                UpdateEnemyRayVisualization(projectile, enemyId, projectilePos, enemyCollider.transform.position);
+                // Create/update connection lightning quads
+                UpdateEnemyConnectionLightning(projectile, enemyId, projectilePos, enemyCollider.transform.position);
             }
         }
         
@@ -248,30 +245,159 @@ public class BFGWeapon : MonoBehaviour
         }
     }
 
-    void UpdateEnemyRayVisualization(BFGProjectile projectile, string enemyId, Vector3 projectilePos, Vector3 enemyPos)
+    void UpdateEnemyConnectionLightning(BFGProjectile projectile, string enemyId, Vector3 projectilePos, Vector3 enemyPos)
     {
-        if (!showRaycast) return;
+        if (lightningQuadPrefab == null)
+            return;
+
+        // Calculate connection parameters
+        Vector3 connectionVector = enemyPos - projectilePos;
+        float totalDistance = connectionVector.magnitude;
+        Vector3 direction = connectionVector.normalized;
         
-        if (!projectile.enemyRayRenderers.ContainsKey(enemyId))
+        // Calculate how many quads we need
+        int requiredQuads = Mathf.CeilToInt(totalDistance / quadLength);
+        
+        // Get or create quad list for this enemy
+        if (!projectile.enemyConnectionQuads.ContainsKey(enemyId))
         {
-            // Create new ray renderer for this enemy
-            GameObject rayObj = new GameObject($"EnemyRay_{enemyId}");
-            LineRenderer lr = rayObj.AddComponent<LineRenderer>();
-            
-            lr.positionCount = 2;
-            lr.startWidth = 0.05f;
-            lr.endWidth = 0.05f;
-            lr.useWorldSpace = true;
-            lr.material = enemyRayMaterial;
-            
-            projectile.enemyRayRenderers[enemyId] = lr;
+            projectile.enemyConnectionQuads[enemyId] = new List<LightningQuad>();
         }
         
-        // Update ray position
-        LineRenderer rayRenderer = projectile.enemyRayRenderers[enemyId];
-        rayRenderer.SetPosition(0, projectilePos);
-        rayRenderer.SetPosition(1, enemyPos);
-        rayRenderer.gameObject.SetActive(showRaycast);
+        List<LightningQuad> lightningQuads = projectile.enemyConnectionQuads[enemyId];
+        
+        // Add more quads if needed
+        while (lightningQuads.Count < requiredQuads)
+        {
+            GameObject newQuad = Instantiate(lightningQuadPrefab);
+            LightningQuad lightningQuad = new LightningQuad
+            {
+                quadObject = newQuad,
+                renderer = newQuad.GetComponent<Renderer>(),
+                lastMaterialChangeTime = Time.time
+            };
+            
+            // Set initial random material
+            if (lightningQuad.renderer != null && lightningMaterials != null && lightningMaterials.Length > 0)
+            {
+                int randomMaterialIndex = Random.Range(0, lightningMaterials.Length);
+                lightningQuad.renderer.material = lightningMaterials[randomMaterialIndex];
+            }
+            
+            lightningQuads.Add(lightningQuad);
+        }
+        
+        // Remove excess quads if needed
+        while (lightningQuads.Count > requiredQuads)
+        {
+            int lastIndex = lightningQuads.Count - 1;
+            LightningQuad lastQuad = lightningQuads[lastIndex];
+            if (lastQuad.quadObject != null)
+                Destroy(lastQuad.quadObject);
+            lightningQuads.RemoveAt(lastIndex);
+        }
+        
+        // Get player camera for billboard rotation
+        Vector3 cameraPosition = playerCamera != null ? playerCamera.transform.position : transform.position;
+        
+        // Position and orient the quads
+        for (int i = 0; i < requiredQuads; i++)
+        {
+            LightningQuad lightningQuad = lightningQuads[i];
+            if (lightningQuad.quadObject == null) continue;
+            
+            float segmentProgress = (float)i / requiredQuads;
+            float nextSegmentProgress = (float)(i + 1) / requiredQuads;
+            
+            // Calculate position for this segment
+            Vector3 segmentStart = projectilePos + connectionVector * segmentProgress;
+            Vector3 segmentEnd = projectilePos + connectionVector * nextSegmentProgress;
+            Vector3 segmentCenter = (segmentStart + segmentEnd) * 0.5f;
+            
+            // Position the quad at the segment center
+            lightningQuad.quadObject.transform.position = segmentCenter;
+            
+            // Calculate proper rotation: vertical axis along connection line, facing camera
+            Vector3 toCameraDirection = (cameraPosition - segmentCenter).normalized;
+            
+            // The connection direction becomes our "up" vector (vertical axis of the quad)
+            Vector3 upVector = direction;
+            
+            // Calculate the right vector by crossing up with the to-camera direction
+            Vector3 rightVector = Vector3.Cross(upVector, toCameraDirection).normalized;
+            
+            // Recalculate the forward vector to ensure it faces the camera properly
+            Vector3 forwardVector = Vector3.Cross(rightVector, upVector).normalized;
+            
+            // Handle edge case where camera is directly aligned with the connection line
+            if (rightVector.magnitude < 0.001f)
+            {
+                // Fallback: use world up as reference
+                rightVector = Vector3.Cross(upVector, Vector3.up).normalized;
+                if (rightVector.magnitude < 0.001f)
+                {
+                    rightVector = Vector3.Cross(upVector, Vector3.right).normalized;
+                }
+                forwardVector = Vector3.Cross(rightVector, upVector).normalized;
+            }
+            
+            // Create rotation using LookRotation with our calculated vectors
+            Quaternion quadRotation = Quaternion.LookRotation(forwardVector, upVector);
+            lightningQuad.quadObject.transform.rotation = quadRotation;
+            
+            // Handle the last segment which might be shorter than quadLength
+            if (i == requiredQuads - 1)
+            {
+                float remainingDistance = totalDistance - (i * quadLength);
+                float scaleRatio = remainingDistance / quadLength;
+                
+                // Scale the quad if it's the last segment and shorter
+                if (scaleRatio < 1.0f)
+                {
+                    Vector3 scale = new Vector3(1f, 6f, scaleRatio); // Ensure Y is always 6
+                    lightningQuad.quadObject.transform.localScale = scale;
+                }
+                else
+                {
+                    Vector3 scale = new Vector3(1f, 6f, 1f); // Ensure Y is always 6
+                    lightningQuad.quadObject.transform.localScale = scale;
+                }
+            }
+            else
+            {
+                Vector3 scale = new Vector3(1f, 6f, 1f); // Ensure Y is always 6
+                lightningQuad.quadObject.transform.localScale = scale;
+            }
+            
+            // Randomize material every materialChangeInterval seconds
+            if (Time.time - lightningQuad.lastMaterialChangeTime >= materialChangeInterval)
+            {
+                if (lightningQuad.renderer != null && lightningMaterials != null && lightningMaterials.Length > 0)
+                {
+                    int randomMaterialIndex = Random.Range(0, lightningMaterials.Length);
+                    lightningQuad.renderer.material = lightningMaterials[randomMaterialIndex];
+                    lightningQuad.lastMaterialChangeTime = Time.time;
+                }
+            }
+            
+            // Set visibility
+            lightningQuad.quadObject.SetActive(showConnections);
+        }
+    }
+
+    void UpdateAllConnectionVisibility()
+    {
+        foreach (var projectile in activeProjectiles)
+        {
+            foreach (var kvp in projectile.enemyConnectionQuads)
+            {
+                foreach (var lightningQuad in kvp.Value)
+                {
+                    if (lightningQuad.quadObject != null)
+                        lightningQuad.quadObject.SetActive(showConnections);
+                }
+            }
+        }
     }
 
     void DestroyEnemy(GameObject enemy, string enemyId, BFGProjectile projectile)
@@ -291,12 +417,15 @@ public class BFGWeapon : MonoBehaviour
         if (projectile.targetedEnemies.ContainsKey(enemyId))
             projectile.targetedEnemies.Remove(enemyId);
         
-        // Remove and destroy ray visualization
-        if (projectile.enemyRayRenderers.ContainsKey(enemyId))
+        // Remove and destroy connection lightning quads
+        if (projectile.enemyConnectionQuads.ContainsKey(enemyId))
         {
-            if (projectile.enemyRayRenderers[enemyId] != null)
-                Destroy(projectile.enemyRayRenderers[enemyId].gameObject);
-            projectile.enemyRayRenderers.Remove(enemyId);
+            foreach (var lightningQuad in projectile.enemyConnectionQuads[enemyId])
+            {
+                if (lightningQuad.quadObject != null)
+                    Destroy(lightningQuad.quadObject);
+            }
+            projectile.enemyConnectionQuads.Remove(enemyId);
         }
     }
 
@@ -357,7 +486,12 @@ public class BFGWeapon : MonoBehaviour
                 Destroy(collider);
             
             // Apply glowing material
-            projectileObj.GetComponent<Renderer>().material = CreateURPMaterial(Color.green);
+            Shader shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+            Material defaultMaterial = new Material(shader);
+            defaultMaterial.color = Color.green;
+            if (defaultMaterial.HasProperty("_BaseColor"))
+                defaultMaterial.SetColor("_BaseColor", Color.green);
+            projectileObj.GetComponent<Renderer>().material = defaultMaterial;
         }
         
         // Create projectile data
@@ -366,7 +500,7 @@ public class BFGWeapon : MonoBehaviour
             projectileObject = projectileObj,
             direction = direction,
             targetedEnemies = new Dictionary<string, EnemyTarget>(),
-            enemyRayRenderers = new Dictionary<string, LineRenderer>()
+            enemyConnectionQuads = new Dictionary<string, List<LightningQuad>>()
         };
         
         activeProjectiles.Add(newProjectile);
@@ -378,11 +512,14 @@ public class BFGWeapon : MonoBehaviour
     {
         BFGProjectile projectile = activeProjectiles[index];
         
-        // Clean up all enemy ray renderers
-        foreach (var kvp in projectile.enemyRayRenderers)
+        // Clean up all enemy connection lightning quads
+        foreach (var kvp in projectile.enemyConnectionQuads)
         {
-            if (kvp.Value != null)
-                Destroy(kvp.Value.gameObject);
+            foreach (var lightningQuad in kvp.Value)
+            {
+                if (lightningQuad.quadObject != null)
+                    Destroy(lightningQuad.quadObject);
+            }
         }
         
         // Destroy projectile object
@@ -424,10 +561,13 @@ public class BFGWeapon : MonoBehaviour
             if (projectile.projectileObject != null)
                 Destroy(projectile.projectileObject);
                 
-            foreach (var kvp in projectile.enemyRayRenderers)
+            foreach (var kvp in projectile.enemyConnectionQuads)
             {
-                if (kvp.Value != null)
-                    Destroy(kvp.Value.gameObject);
+                foreach (var lightningQuad in kvp.Value)
+                {
+                    if (lightningQuad.quadObject != null)
+                        Destroy(lightningQuad.quadObject);
+                }
             }
         }
         activeProjectiles.Clear();
@@ -441,7 +581,7 @@ public class BFGProjectile
     public GameObject projectileObject;
     public Vector3 direction;
     public Dictionary<string, EnemyTarget> targetedEnemies;
-    public Dictionary<string, LineRenderer> enemyRayRenderers;
+    public Dictionary<string, List<LightningQuad>> enemyConnectionQuads; // Changed to lightning quads
 }
 
 [System.Serializable]
@@ -451,4 +591,12 @@ public class EnemyTarget
     public Vector3 enemyPosition;
     public float firstTargetedTime;
     public float lastSeenTime;
+}
+
+[System.Serializable]
+public class LightningQuad
+{
+    public GameObject quadObject;
+    public Renderer renderer;
+    public float lastMaterialChangeTime;
 }
