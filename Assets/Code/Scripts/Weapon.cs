@@ -30,17 +30,11 @@ public class Weapon : MonoBehaviour
     public Vector3 randomRotationMin = Vector3.zero;
     public Vector3 randomRotationMax = new Vector3(360f, 360f, 360f);
 
-    [Header("Bullet Animation")]
-    public float bulletTravelTime = 0.1f; // Time for bullet to travel from start to hit point
-
-    [Header("Raycast Visualization")]
-    public bool showRaycast = true;
-    public KeyCode toggleRaycastKey = KeyCode.R;
-    public LayerMask playerLayerMask = 1;
-    public Material hitLineMaterial;
-    public Material missLineMaterial;    
-    public float shootFeedbackDuration = 2f; // How long to show shoot feedback
-    public float infiniteVisualizationDistance = 1000f; // Distance for infinite range visualization
+    [Header("Bullet Prefab System")]
+    public GameObject bulletPrefab; // Prefab for the bullet visual effect
+    public GameObject hitEffectPrefab; // Prefab for hit animation/effect
+    public float bulletSpeed = 50f; // Speed of bullet travel
+    public float hitEffectDuration = 2f; // Duration before hit effect is destroyed
 
     [Header("Input")]
     public KeyCode fireKey = KeyCode.Mouse0;
@@ -49,27 +43,6 @@ public class Weapon : MonoBehaviour
     private float fireTimer = 0f;
     private float flashTimer = 0f;
     private bool flashActive = false;
-    
-    // Visualization objects
-    private LineRenderer aimLine;
-    private GameObject aimEndPoint;
-    private GameObject[] bulletSpheres;
-    private int maxBulletSpheres = 10; // Pool size for bullet spheres
-    private int currentBulletIndex = 0;
-    
-    // Bullet animation data
-    private BulletData[] bulletDataArray;
-    
-    // Bullet animation struct
-    [System.Serializable]
-    public struct BulletData
-    {
-        public Vector3 startPoint;
-        public Vector3 endPoint;
-        public float animationTimer;
-        public bool isAnimating;
-        public bool isHit; // Whether this bullet hit something
-    }
     
     void Start()
     {
@@ -100,28 +73,20 @@ public class Weapon : MonoBehaviour
             }
         }
 
-        CreateVisualizationObjects();
+        // Validate prefab assignments
+        if (bulletPrefab == null)
+        {
+            Debug.LogError($"Bullet prefab not assigned for weapon {gameObject.name}!");
+        }
+        if (hitEffectPrefab == null)
+        {
+            Debug.LogWarning($"Hit effect prefab not assigned for weapon {gameObject.name}. No hit effects will be spawned.");
+        }
     }
 
     void Update()
     {
         fireTimer += Time.deltaTime;
-
-        // Handle raycast toggle
-        if (Input.GetKeyDown(toggleRaycastKey))
-        {
-            showRaycast = !showRaycast;
-            UpdateVisualizationVisibility();
-        }
-
-        // Update continuous aim visualization
-        if (showRaycast)
-        {
-            UpdateAimVisualization();
-        }
-
-        // Update bullet animation and feedback
-        UpdateBulletAnimation();
 
         // Handle muzzle flash timing
         UpdateMuzzleFlash();
@@ -155,180 +120,6 @@ public class Weapon : MonoBehaviour
         return shootPoint != null ? shootPoint.position : transform.position;
     }
 
-    void CreateVisualizationObjects()
-    {
-        // Create materials if not assigned
-        if (hitLineMaterial == null)
-            hitLineMaterial = CreateURPMaterial(Color.green);
-        if (missLineMaterial == null)
-            missLineMaterial = CreateURPMaterial(Color.red);
-
-        // Create aim line (continuous visualization)
-        CreateAimLine();
-        
-        // Create bullet spheres (temporary feedback when shooting)
-        CreateBulletSpheres();
-        
-        UpdateVisualizationVisibility();
-    }
-
-    void CreateAimLine()
-    {
-        // Aim line for continuous visualization
-        GameObject aimLineObj = new GameObject("AimLine");
-        aimLineObj.transform.SetParent(transform);
-        aimLine = aimLineObj.AddComponent<LineRenderer>();
-        
-        ConfigureLineRenderer(aimLine, 0.02f);
-        
-        // Create aim endpoint sphere
-        aimEndPoint = CreateSphere("AimEndPoint", 0.1f, Color.white);
-    }
-
-    void CreateBulletSpheres()
-    {
-        bulletSpheres = new GameObject[maxBulletSpheres];
-        bulletDataArray = new BulletData[maxBulletSpheres];
-        
-        for (int i = 0; i < maxBulletSpheres; i++)
-        {
-            // Create bullet impact sphere
-            bulletSpheres[i] = CreateSphere($"BulletSphere_{i}", 0.08f, Color.yellow);
-            bulletSpheres[i].SetActive(false);
-            
-            // Initialize bullet data
-            bulletDataArray[i] = new BulletData
-            {
-                startPoint = Vector3.zero,
-                endPoint = Vector3.zero,
-                animationTimer = 0f,
-                isAnimating = false,
-                isHit = false
-            };
-        }
-    }
-
-    GameObject CreateSphere(string name, float scale, Color color)
-    {
-        GameObject sphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-        sphere.name = name;
-        sphere.transform.localScale = Vector3.one * scale;
-        
-        // Remove collider
-        Collider collider = sphere.GetComponent<Collider>();
-        if (collider != null)
-            DestroyImmediate(collider);
-        
-        // Apply material
-        sphere.GetComponent<Renderer>().material = CreateURPMaterial(color);
-        
-        return sphere;
-    }
-
-    void ConfigureLineRenderer(LineRenderer lr, float width)
-    {
-        lr.positionCount = 2;
-        lr.startWidth = width;
-        lr.endWidth = width;
-        lr.useWorldSpace = true;
-    }
-
-    Material CreateURPMaterial(Color color)
-    {
-        Shader shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
-        Material mat = new Material(shader);
-        mat.color = color;
-        
-        if (mat.HasProperty("_BaseColor"))
-            mat.SetColor("_BaseColor", color);
-        if (mat.HasProperty("_Metallic"))
-            mat.SetFloat("_Metallic", 0.0f);
-        if (mat.HasProperty("_Smoothness"))
-            mat.SetFloat("_Smoothness", 0.5f);
-
-        return mat;
-    }
-
-    void UpdateVisualizationVisibility()
-    {
-        bool visible = showRaycast;
-        
-        if (aimLine != null)
-            aimLine.gameObject.SetActive(visible);
-        if (aimEndPoint != null)
-            aimEndPoint.SetActive(visible);
-    }
-
-    void UpdateAimVisualization()
-    {
-        if (aimLine == null || aimEndPoint == null) return;
-
-        Vector3 startPoint = GetShootStartPoint();
-        Vector3 direction = GetShootDirection();
-        
-        // Use much larger distance for visualization when infinite range is enabled
-        float visualizationDistance = infiniteRange ? infiniteVisualizationDistance : maxDistance;
-        int layerMask = ~playerLayerMask;
-
-        if (Physics.Raycast(startPoint, direction, out RaycastHit hit, visualizationDistance, layerMask))
-        {
-            // Hit - green line and visible endpoint
-            aimLine.material = hitLineMaterial;
-            aimLine.SetPosition(0, startPoint);
-            aimLine.SetPosition(1, hit.point);
-            
-            aimEndPoint.transform.position = hit.point;
-            aimEndPoint.GetComponent<Renderer>().material = hitLineMaterial;
-            aimEndPoint.SetActive(showRaycast);
-        }
-        else
-        {
-            // Miss - red line and no endpoint
-            Vector3 endPoint = startPoint + (direction * visualizationDistance);
-            aimLine.material = missLineMaterial;
-            aimLine.SetPosition(0, startPoint);
-            aimLine.SetPosition(1, endPoint);
-            
-            aimEndPoint.SetActive(false);
-        }
-    }
-
-    void UpdateBulletAnimation()
-    {
-        for (int i = 0; i < maxBulletSpheres; i++)
-        {
-            if (bulletDataArray[i].isAnimating)
-            {
-                bulletDataArray[i].animationTimer += Time.deltaTime;
-                
-                if (bulletDataArray[i].animationTimer <= bulletTravelTime)
-                {
-                    // Animate bullet from start to end point
-                    float t = bulletDataArray[i].animationTimer / bulletTravelTime;
-                    Vector3 currentPosition = Vector3.Lerp(bulletDataArray[i].startPoint, bulletDataArray[i].endPoint, t);
-                    bulletSpheres[i].transform.position = currentPosition;
-                }
-                else if (bulletDataArray[i].animationTimer <= bulletTravelTime + shootFeedbackDuration)
-                {
-                    // Keep bullet at end position during feedback duration
-                    bulletSpheres[i].transform.position = bulletDataArray[i].endPoint;
-                    
-                    // Optional fade out effect
-                    float fadeTime = bulletDataArray[i].animationTimer - bulletTravelTime;
-                    float alpha = 1f - (fadeTime / shootFeedbackDuration);
-                    // You could modify material alpha here if needed
-                }
-                else
-                {
-                    // Animation and feedback complete - hide bullet
-                    bulletSpheres[i].SetActive(false);
-                    bulletDataArray[i].isAnimating = false;
-                    bulletDataArray[i].animationTimer = 0f;
-                }
-            }
-        }
-    }
-
     void UpdateMuzzleFlash()
     {
         if (flashActive)
@@ -358,27 +149,29 @@ public class Weapon : MonoBehaviour
         {
             for (int i = 0; i < pellets; i++)
             {
-                ShootRay(true);
+                SpawnBullet(true);
             }
         }
         else
         {
-            ShootRay(false);
+            SpawnBullet(false);
         }
 
-        // MODIFIED: Always use only 1 bullet, regardless of shotgun pellets
+        // Always use only 1 bullet, regardless of shotgun pellets
         weaponController.UseAmmo(ammoIndex, 1);
         AnimateFlash();
     }
 
-    void ShootRay(bool applySpread)
+    void SpawnBullet(bool applySpread)
     {
+        if (bulletPrefab == null) return;
+
         Vector3 startPoint = GetShootStartPoint();
         Vector3 direction = GetShootDirection();
 
         if (applySpread)
         {
-            // NEW: Use independent X/Y spread if enabled
+            // Use independent X/Y spread if enabled
             if (useIndependentSpread)
             {
                 direction = Quaternion.Euler(
@@ -398,61 +191,18 @@ public class Weapon : MonoBehaviour
             }
         }
 
-        // For actual shooting, use infinite distance if enabled
-        float distance = infiniteRange ? Mathf.Infinity : maxDistance;
-        int layerMask = ~playerLayerMask;
-
-        // Get next available bullet sphere
-        int sphereIndex = GetNextBulletIndex();
-        GameObject bulletSphere = bulletSpheres[sphereIndex];
-
-        if (Physics.Raycast(startPoint, direction, out RaycastHit hit, distance, layerMask))
+        // Spawn bullet prefab
+        GameObject bullet = Instantiate(bulletPrefab, startPoint, Quaternion.LookRotation(direction));
+        
+        // Add and configure the bullet behavior component
+        BulletBehavior bulletBehavior = bullet.GetComponent<BulletBehavior>();
+        if (bulletBehavior == null)
         {
-            // Hit - start bullet animation from shoot point to hit point
-            Vector3 endPoint = hit.point - (direction * 0.05f); // Slightly offset from hit surface
-            
-            bulletDataArray[sphereIndex] = new BulletData
-            {
-                startPoint = startPoint,
-                endPoint = endPoint,
-                animationTimer = 0f,
-                isAnimating = true,
-                isHit = true
-            };
-            
-            bulletSphere.transform.position = startPoint; // Start at shoot point
-            bulletSphere.GetComponent<Renderer>().material = CreateURPMaterial(Color.yellow);
-            bulletSphere.SetActive(showRaycast);
-            
-            Debug.Log($"SHOT HIT: {hit.collider.name} at {hit.point}");
+            bulletBehavior = bullet.AddComponent<BulletBehavior>();
         }
-        else
-        {
-            // Miss - animate bullet to max distance (use maxDistance even for infinite weapons for animation purposes)
-            Vector3 endPoint = startPoint + (direction * maxDistance);
-            
-            bulletDataArray[sphereIndex] = new BulletData
-            {
-                startPoint = startPoint,
-                endPoint = endPoint,
-                animationTimer = 0f,
-                isAnimating = true,
-                isHit = false
-            };
-            
-            bulletSphere.transform.position = startPoint; // Start at shoot point
-            bulletSphere.GetComponent<Renderer>().material = CreateURPMaterial(Color.red); // Red for miss
-            bulletSphere.SetActive(showRaycast);
-            
-            Debug.Log("SHOT MISS: No target hit");
-        }
-    }
 
-    int GetNextBulletIndex()
-    {
-        int index = currentBulletIndex;
-        currentBulletIndex = (currentBulletIndex + 1) % maxBulletSpheres;
-        return index;
+        // Configure bullet behavior
+        bulletBehavior.Initialize(direction, bulletSpeed, infiniteRange ? Mathf.Infinity : maxDistance, hitEffectPrefab, hitEffectDuration);
     }
 
     void AnimateFlash()
@@ -479,19 +229,57 @@ public class Weapon : MonoBehaviour
             flashTimer = 0f;
         }
     }
+}
 
-    void OnDestroy()
+// Separate component to handle individual bullet behavior
+public class BulletBehavior : MonoBehaviour
+{
+    private Vector3 direction;
+    private float speed;
+    private float maxDistance;
+    private GameObject hitEffectPrefab;
+    private float hitEffectDuration;
+    private Vector3 startPosition;
+    private float traveledDistance = 0f;
+
+    public void Initialize(Vector3 dir, float spd, float maxDist, GameObject hitPrefab, float hitDuration)
     {
-        // Clean up all visualization objects
-        if (aimLine != null)
-            DestroyImmediate(aimLine.gameObject);
-        if (aimEndPoint != null)
-            DestroyImmediate(aimEndPoint);
-            
-        if (bulletSpheres != null)
+        direction = dir.normalized;
+        speed = spd;
+        maxDistance = maxDist;
+        hitEffectPrefab = hitPrefab;
+        hitEffectDuration = hitDuration;
+        startPosition = transform.position;
+    }
+
+    void Update()
+    {
+        // Move bullet forward
+        float moveDistance = speed * Time.deltaTime;
+        transform.position += direction * moveDistance;
+        traveledDistance += moveDistance;
+
+        // Check for collision
+        RaycastHit hit;
+        if (Physics.Raycast(transform.position - direction * moveDistance, direction, out hit, moveDistance))
         {
-            foreach (var sphere in bulletSpheres)
-                if (sphere != null) DestroyImmediate(sphere);
+            // Hit something - spawn hit effect and destroy bullet
+            if (hitEffectPrefab != null)
+            {
+                GameObject hitEffect = Instantiate(hitEffectPrefab, hit.point, Quaternion.LookRotation(hit.normal));
+                Destroy(hitEffect, hitEffectDuration);
+            }
+            
+            Debug.Log($"SHOT HIT: {hit.collider.name} at {hit.point}");
+            Destroy(gameObject);
+            return;
+        }
+
+        // Check if bullet has traveled max distance
+        if (traveledDistance >= maxDistance)
+        {
+            Debug.Log("SHOT MISS: Maximum distance reached");
+            Destroy(gameObject);
         }
     }
 }
