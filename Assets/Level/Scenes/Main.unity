@@ -1636,11 +1636,11 @@ MonoBehaviour:
   ammoIndex: 2
   shootPoint: {fileID: 553039715}
   playerCamera: {fileID: 0}
-  isShotgun: 1
+  isShotgun: 0
   pellets: 25
   useIndependentSpread: 1
   spreadAngle: 20
-  spreadAngleX: 7
+  spreadAngleX: 6
   spreadAngleY: 20
   infiniteRange: 1
   maxDistance: 5
@@ -1653,9 +1653,9 @@ MonoBehaviour:
   randomRotationMin: {x: -360, y: 90, z: -90}
   randomRotationMax: {x: 360, y: 90, z: -90}
   bulletPrefab: {fileID: 6938186932912982604, guid: c7b7b67503711df408ddf91ba6380aed, type: 3}
-  hitEffectPrefab: {fileID: 0}
+  hitEffectPrefab: {fileID: 899355729483806681, guid: b13b0975ccbee9f4dac39313e30d1ab0, type: 3}
   bulletSpeed: 50
-  hitEffectDuration: 2
+  hitEffectDuration: 0.1
   fireKey: 323
 --- !u!1 &319455274
 GameObject:
@@ -6943,9 +6943,9 @@ MonoBehaviour:
   randomRotationMin: {x: -360, y: -180, z: -90}
   randomRotationMax: {x: 360, y: -180, z: -90}
   bulletPrefab: {fileID: 6938186932912982604, guid: c7b7b67503711df408ddf91ba6380aed, type: 3}
-  hitEffectPrefab: {fileID: 0}
+  hitEffectPrefab: {fileID: 899355729483806681, guid: b13b0975ccbee9f4dac39313e30d1ab0, type: 3}
   bulletSpeed: 50
-  hitEffectDuration: 2
+  hitEffectDuration: 0.1
   fireKey: 323
 --- !u!1001 &1908102698
 PrefabInstance:
@@ -7095,9 +7095,9 @@ MonoBehaviour:
   randomRotationMin: {x: -360, y: -90, z: -90}
   randomRotationMax: {x: 360, y: -90, z: -90}
   bulletPrefab: {fileID: 6938186932912982604, guid: c7b7b67503711df408ddf91ba6380aed, type: 3}
-  hitEffectPrefab: {fileID: 0}
+  hitEffectPrefab: {fileID: 899355729483806681, guid: b13b0975ccbee9f4dac39313e30d1ab0, type: 3}
   bulletSpeed: 50
-  hitEffectDuration: 2
+  hitEffectDuration: 0.1
   fireKey: 323
 --- !u!1 &1935448299
 GameObject:
