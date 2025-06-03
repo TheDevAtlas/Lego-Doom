@@ -11,6 +11,9 @@ public class BFGWeapon : MonoBehaviour
     public Transform shootPoint; // The point where projectiles originate from
     public Camera playerCamera; // Reference to the player's camera
     
+    [Header("Animation")]
+    public WeaponAnimationController animationController; // Reference to animation controller
+    
     [Header("BFG Projectile Settings")]
     public GameObject bfgProjectilePrefab; // Prefab for the BFG projectile
     public float projectileSpeed = 20f; // Speed at which projectile moves
@@ -58,6 +61,16 @@ public class BFGWeapon : MonoBehaviour
             if (playerCamera == null)
             {
                 playerCamera = FindObjectOfType<Camera>();
+            }
+        }
+        
+        // Auto-find animation controller if not assigned
+        if (animationController == null)
+        {
+            animationController = GetComponent<WeaponAnimationController>();
+            if (animationController == null)
+            {
+                Debug.LogWarning($"No WeaponAnimationController found on {gameObject.name}. BFG animations will not work.");
             }
         }
         
@@ -453,6 +466,12 @@ public class BFGWeapon : MonoBehaviour
     {
         if (!weaponController.HasAmmo(ammoIndex)) return;
 
+        // Trigger shooting animation BEFORE firing
+        if (animationController != null)
+        {
+            animationController.TriggerShootAnimation();
+        }
+
         // Create BFG projectile
         CreateBFGProjectile();
         
@@ -551,6 +570,21 @@ public class BFGWeapon : MonoBehaviour
             flashActive = true;
             flashTimer = 0f;
         }
+    }
+
+    // Called when this weapon becomes active
+    void OnEnable()
+    {
+        if (animationController != null)
+        {
+            animationController.RefreshAnimationState();
+        }
+    }
+
+    // Called when this weapon becomes inactive
+    void OnDisable()
+    {
+        // Animation controller's OnDisable will handle resetting animation state
     }
 
     void OnDestroy()

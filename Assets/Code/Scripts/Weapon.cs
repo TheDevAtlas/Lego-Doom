@@ -10,6 +10,9 @@ public class Weapon : MonoBehaviour
     public Transform shootPoint; // The point where bullets originate from
     public Camera playerCamera; // Reference to the player's camera
     
+    [Header("Animation")]
+    public WeaponAnimationController animationController; // Reference to animation controller
+    
     [Header("Firing Settings")]
     public bool isShotgun = false;
     public int pellets = 5;
@@ -53,6 +56,16 @@ public class Weapon : MonoBehaviour
             if (playerCamera == null)
             {
                 playerCamera = FindObjectOfType<Camera>();
+            }
+        }
+        
+        // Auto-find animation controller if not assigned
+        if (animationController == null)
+        {
+            animationController = GetComponent<WeaponAnimationController>();
+            if (animationController == null)
+            {
+                Debug.LogWarning($"No WeaponAnimationController found on {gameObject.name}. Weapon animations will not work.");
             }
         }
         
@@ -145,6 +158,12 @@ public class Weapon : MonoBehaviour
     {
         if (!weaponController.HasAmmo(ammoIndex)) return;
 
+        // Trigger shooting animation BEFORE firing
+        if (animationController != null)
+        {
+            animationController.TriggerShootAnimation();
+        }
+
         if (isShotgun)
         {
             for (int i = 0; i < pellets; i++)
@@ -228,6 +247,21 @@ public class Weapon : MonoBehaviour
             flashActive = true;
             flashTimer = 0f;
         }
+    }
+
+    // Called when this weapon becomes active
+    void OnEnable()
+    {
+        if (animationController != null)
+        {
+            animationController.RefreshAnimationState();
+        }
+    }
+
+    // Called when this weapon becomes inactive
+    void OnDisable()
+    {
+        // Animation controller's OnDisable will handle resetting animation state
     }
 }
 
