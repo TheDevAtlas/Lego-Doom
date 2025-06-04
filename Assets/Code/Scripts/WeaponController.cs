@@ -4,7 +4,7 @@ using System.Collections.Generic;
 public class WeaponController : MonoBehaviour
 {
     [Header("Weapons (4 Guns + 1 Chainsaw)")]
-    [SerializeField] private List<Weapon> weapons = new List<Weapon>(); // 0-3 = guns, 4 = chainsaw
+    [SerializeField] private List<Weapon> weapons = new List<Weapon>();
     [SerializeField] private int currentWeaponIndex = 0;
 
     [System.Serializable]
@@ -29,6 +29,7 @@ public class WeaponController : MonoBehaviour
     void Update()
     {
         HandleWeaponScrolling();
+        HandleNumberKeySelection();
         HandleChainsawToggle();
     }
 
@@ -57,6 +58,28 @@ public class WeaponController : MonoBehaviour
         }
     }
 
+    void HandleNumberKeySelection()
+    {
+        if (chainsawActive) return;
+
+        if (Input.GetKeyDown(KeyCode.Alpha1))
+        {
+            SelectWeapon(0);
+        }
+        else if (Input.GetKeyDown(KeyCode.Alpha2))
+        {
+            SelectWeapon(1);
+        }
+        else if (Input.GetKeyDown(KeyCode.Alpha3))
+        {
+            SelectWeapon(2);
+        }
+        else if (Input.GetKeyDown(KeyCode.Alpha4))
+        {
+            SelectWeapon(3);
+        }
+    }
+
     void HandleChainsawToggle()
     {
         if (Input.GetKeyDown(KeyCode.C))
@@ -74,7 +97,7 @@ public class WeaponController : MonoBehaviour
 
     void NextWeapon()
     {
-        currentWeaponIndex = (currentWeaponIndex + 1) % 4; // Only scroll through 4 guns
+        currentWeaponIndex = (currentWeaponIndex + 1) % 4;
         SelectWeapon(currentWeaponIndex);
     }
 
@@ -96,11 +119,9 @@ public class WeaponController : MonoBehaviour
 
     void ActivateChainsaw()
     {
-        // Deactivate gun
         if (currentActiveWeapon != null)
             currentActiveWeapon.weaponObject.SetActive(false);
 
-        // Activate chainsaw (index 4)
         weapons[4].weaponObject.SetActive(true);
         chainsawActive = true;
     }
@@ -110,11 +131,9 @@ public class WeaponController : MonoBehaviour
         weapons[4].weaponObject.SetActive(false);
         chainsawActive = false;
 
-        // Reactivate last gun
         SelectWeapon(currentWeaponIndex);
     }
 
-    // Public ammo management
     public void AddAmmo(int weaponIndex, int amount)
     {
         if (IsValidIndex(weaponIndex))
@@ -154,13 +173,11 @@ public class WeaponController : MonoBehaviour
         RemoveAmmo(weaponIndex, amount);
     }
 
-
     bool IsValidIndex(int index)
     {
         return index >= 0 && index < weapons.Count;
     }
 
-    // Optional accessors
     public Weapon GetCurrentWeapon()
     {
         return chainsawActive ? weapons[4] : currentActiveWeapon;

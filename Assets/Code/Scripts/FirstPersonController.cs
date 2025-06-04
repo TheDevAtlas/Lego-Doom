@@ -1,10 +1,12 @@
 using UnityEngine;
+using UnityEngine.UI;
 
 [RequireComponent(typeof(CharacterController))]
 public class FirstPersonController : MonoBehaviour
 {
     [Header("References")]
     [SerializeField] private Transform cameraTransform;
+    [SerializeField] private Image speedLinesImage; // Add this reference
     private CharacterController characterController;
 
     [Header("Movement Settings")]
@@ -19,6 +21,10 @@ public class FirstPersonController : MonoBehaviour
     [SerializeField] private float dashDuration = 0.2f;
     [SerializeField] private int maxDashes = 2;
     [SerializeField] private float dashRechargeTime = 1f;
+    
+    [Header("Speed Lines Settings")]
+    [SerializeField] private float speedLinesStartScale = 1f;
+    [SerializeField] private float speedLinesEndScale = 1.1f;
     
     [Header("Jump Settings")]
     [SerializeField] private float jumpHeight = 2f;
@@ -55,6 +61,10 @@ public class FirstPersonController : MonoBehaviour
     private int currentJumps;
     private bool wasGroundedLastFrame = true;
     
+    // Speed lines variables
+    private Color speedLinesOriginalColor;
+    private Vector3 speedLinesOriginalScale;
+    
     private void Awake()
     {
         characterController = GetComponent<CharacterController>();
@@ -66,6 +76,29 @@ public class FirstPersonController : MonoBehaviour
         // Lock and hide cursor
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
+        
+        // Initialize speed lines
+        InitializeSpeedLines();
+    }
+    
+    private void InitializeSpeedLines()
+    {
+        if (speedLinesImage != null)
+        {
+            // Store original color and scale
+            speedLinesOriginalColor = speedLinesImage.color;
+            speedLinesOriginalScale = speedLinesImage.transform.localScale;
+            
+            // Start with speed lines invisible
+            Color invisibleColor = speedLinesOriginalColor;
+            invisibleColor.a = 0f;
+            speedLinesImage.color = invisibleColor;
+            speedLinesImage.transform.localScale = Vector3.one * speedLinesStartScale;
+        }
+        else
+        {
+            Debug.LogWarning("Speed Lines Image not assigned in FirstPersonController!");
+        }
     }
 
     private void Update()
@@ -77,6 +110,7 @@ public class FirstPersonController : MonoBehaviour
         ApplyGravity();
         UpdateGroundedState();
         RechargeDashes();
+        UpdateSpeedLines();
     }
 
     private void HandleInput()
@@ -237,6 +271,36 @@ public class FirstPersonController : MonoBehaviour
         {
             currentDashes++;
             lastDashRechargeTime = Time.time;
+        }
+    }
+    
+    private void UpdateSpeedLines()
+    {
+        if (speedLinesImage == null) return;
+        
+        if (isDashing)
+        {
+            // Calculate progress through dash (0 to 1)
+            float dashProgress = (Time.time - dashTimeStamp) / dashDuration;
+            dashProgress = Mathf.Clamp01(dashProgress);
+            
+            // Opacity: Start at 1, fade to 0
+            float alpha = Mathf.Lerp(0.05f, 0f, dashProgress);
+            Color currentColor = speedLinesOriginalColor;
+            currentColor.a = alpha;
+            speedLinesImage.color = currentColor;
+            
+            // Scale: Start at speedLinesStartScale, end at speedLinesEndScale
+            float currentScale = Mathf.Lerp(speedLinesStartScale, speedLinesEndScale, dashProgress);
+            speedLinesImage.transform.localScale = Vector3.one * currentScale;
+        }
+        else
+        {
+            // Ensure speed lines are invisible when not dashing
+            Color invisibleColor = speedLinesOriginalColor;
+            invisibleColor.a = 0f;
+            speedLinesImage.color = invisibleColor;
+            speedLinesImage.transform.localScale = Vector3.one * speedLinesStartScale;
         }
     }
     
