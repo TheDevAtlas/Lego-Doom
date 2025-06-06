@@ -305,7 +305,7 @@ public class BulletBehavior : MonoBehaviour
             }
             
             Debug.Log($"SHOT HIT: {hit.collider.name} at {hit.point}");
-            Destroy(gameObject);
+            Destroy(gameObject, 15f);
             return;
         }
 

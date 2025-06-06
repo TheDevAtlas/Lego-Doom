@@ -20,12 +20,11 @@ public class ChainsawWeapon : MonoBehaviour
     public LayerMask enemyLayerMask = -1; // What layers count as enemies
     public LayerMask playerLayerMask = 1; // Player layer to exclude
 
-    [Header("Slicing Configuration")]
-    public Vector3 slicePlaneNormal = Vector3.up; // Direction of the slice (up = horizontal cut)
-    public float sliceOffset = 0f; // Offset from enemy center for slice plane
-    public bool useRandomSliceAngle = false;
-    public float minRandomAngle = -30f;
-    public float maxRandomAngle = 30f;
+    [Header("Slice Physics")]
+    public float sliceForce = 8f; // How strong the slice force is
+    public float upwardForce = 3f; // Upward force applied to pieces
+    public float torqueForce = 10f; // Spinning force applied to pieces
+    public float pieceLifetime = 5f; // How long pieces stay before being destroyed
 
     [Header("Auto Fire")]
     public bool autoFire = false;
@@ -203,13 +202,12 @@ public class ChainsawWeapon : MonoBehaviour
     void UpdateSlicePlaneVisualization(GameObject target)
     {
         Vector3 targetCenter = GetEnemyCenter(target);
-        Vector3 sliceNormal = GetSliceNormal(target);
         
-        // Position the slice plane at target center with offset
-        slicePlaneVisualizer.transform.position = targetCenter + (sliceNormal * sliceOffset);
+        // Position the slice plane at target center (horizontal slice)
+        slicePlaneVisualizer.transform.position = targetCenter;
         
-        // Orient the plane perpendicular to the slice normal
-        slicePlaneVisualizer.transform.rotation = Quaternion.LookRotation(sliceNormal, Vector3.up);
+        // Orient the plane horizontally (slice from top to bottom)
+        slicePlaneVisualizer.transform.rotation = Quaternion.LookRotation(Vector3.up, playerTransform.forward);
     }
 
     GameObject FindNearestEnemy()
@@ -225,15 +223,49 @@ public class ChainsawWeapon : MonoBehaviour
             if (((1 << col.gameObject.layer) & playerLayerMask) != 0)
                 continue;
             
-            float distance = Vector3.Distance(transform.position, col.transform.position);
+            // Find the root enemy parent (the one with LegoEnemy component)
+            GameObject rootEnemy = FindRootEnemy(col.gameObject);
+            if (rootEnemy == null) continue;
+            
+            float distance = Vector3.Distance(transform.position, rootEnemy.transform.position);
             if (distance < nearestDistance)
             {
                 nearestDistance = distance;
-                nearestEnemy = col.gameObject;
+                nearestEnemy = rootEnemy;
             }
         }
         
         return nearestEnemy;
+    }
+
+    GameObject FindRootEnemy(GameObject obj)
+    {
+        // First check if this object has LegoEnemy component
+        if (obj.GetComponent<LegoEnemy>() != null)
+        {
+            return obj;
+        }
+        
+        // Check parent objects up the hierarchy
+        Transform current = obj.transform.parent;
+        while (current != null)
+        {
+            if (current.GetComponent<LegoEnemy>() != null)
+            {
+                return current.gameObject;
+            }
+            current = current.parent;
+        }
+        
+        // If no LegoEnemy found in hierarchy, check if any child has LegoEnemy
+        LegoEnemy childEnemy = obj.GetComponentInChildren<LegoEnemy>();
+        if (childEnemy != null)
+        {
+            return childEnemy.gameObject;
+        }
+        
+        // If still no LegoEnemy found, this might not be a valid enemy
+        return null;
     }
 
     void AttemptSlice()
@@ -246,6 +278,8 @@ public class ChainsawWeapon : MonoBehaviour
             Debug.Log("No enemy in range to slice!");
             return;
         }
+        
+        Debug.Log($"Chainsaw targeting root enemy: {target.name}");
         
         // Start slicing process
         StartCoroutine(SliceSequence(target));
@@ -321,7 +355,12 @@ public class ChainsawWeapon : MonoBehaviour
 
     void SliceEnemy(GameObject enemy)
     {
-        // Get all objects that make up this enemy
+        Debug.Log($"Chainsaw slicing enemy: {enemy.name}");
+        
+        // INSTANTLY kill the enemy first to prevent interference
+        KillEnemyInstantly(enemy);
+        
+        // Get all enemy parts
         List<GameObject> enemyParts = GetEnemyParts(enemy);
         
         if (enemyParts.Count == 0)
@@ -330,25 +369,169 @@ public class ChainsawWeapon : MonoBehaviour
             return;
         }
         
-        Vector3 sliceNormal = GetSliceNormal(enemy);
+        // Calculate the center point of all enemy parts
         Vector3 enemyCenter = GetEnemyCenter(enemy);
-        Vector3 slicePosition = enemyCenter + (sliceNormal * sliceOffset);
         
-        Debug.Log($"Slicing enemy {enemy.name} with {enemyParts.Count} parts");
+        // Get player's right direction for slice forces
+        Vector3 playerRight = playerTransform.right;
+        
+        Debug.Log($"Slicing {enemyParts.Count} parts at center: {enemyCenter}");
+        
+        // Separate parts into top and bottom halves based on their position relative to center
+        List<GameObject> topParts = new List<GameObject>();
+        List<GameObject> bottomParts = new List<GameObject>();
         
         foreach (GameObject part in enemyParts)
         {
             if (part != null)
             {
-                SliceObject(part, slicePosition, sliceNormal);
+                // Determine if this part is above or below the center
+                if (part.transform.position.y >= enemyCenter.y)
+                {
+                    topParts.Add(part);
+                }
+                else
+                {
+                    bottomParts.Add(part);
+                }
             }
         }
         
-        // Optionally destroy the original enemy parent object
-        if (enemy != null)
+        Debug.Log($"Top parts: {topParts.Count}, Bottom parts: {bottomParts.Count}");
+        
+        // Create grouped objects for top and bottom halves to keep parts together
+        GameObject topGroup = CreatePartGroup(topParts, "TopHalf");
+        GameObject bottomGroup = CreatePartGroup(bottomParts, "BottomHalf");
+        
+        // Apply physics to groups (fly to opposite sides)
+        if (topGroup != null)
         {
-            // Add death effects, sounds, etc. here
-            Destroy(enemy, 0.1f); // Small delay to allow slice effects to show
+            ApplyGroupPhysics(topGroup, playerRight, true);
+        }
+        
+        if (bottomGroup != null)
+        {
+            ApplyGroupPhysics(bottomGroup, -playerRight, false);
+        }
+        
+        // Destroy the original enemy immediately
+        Destroy(enemy);
+    }
+
+    GameObject CreatePartGroup(List<GameObject> parts, string groupName)
+    {
+        if (parts.Count == 0) return null;
+        
+        // Create a parent object to hold all parts together
+        GameObject group = new GameObject($"ChainsawSlice_{groupName}");
+        
+        // Calculate group center
+        Vector3 groupCenter = Vector3.zero;
+        foreach (GameObject part in parts)
+        {
+            if (part != null)
+            {
+                groupCenter += part.transform.position;
+            }
+        }
+        groupCenter /= parts.Count;
+        group.transform.position = groupCenter;
+        
+        // Parent all parts to this group
+        foreach (GameObject part in parts)
+        {
+            if (part != null)
+            {
+                part.transform.SetParent(group.transform);
+            }
+        }
+        
+        Debug.Log($"Created {groupName} with {parts.Count} parts at position {groupCenter}");
+        return group;
+    }
+
+    void ApplyGroupPhysics(GameObject group, Vector3 forceDirection, bool isTopHalf)
+    {
+        if (group == null) return;
+        
+        // Add rigidbody to the group object
+        Rigidbody rb = group.AddComponent<Rigidbody>();
+        rb.isKinematic = false;
+        
+        // Calculate force: horizontal direction + upward force
+        Vector3 totalForce = (forceDirection * sliceForce) + (Vector3.up * upwardForce);
+        
+        // Add some variation to make it look more natural
+        totalForce += new Vector3(
+            Random.Range(-1f, 1f),
+            Random.Range(-0.5f, 1f),
+            Random.Range(-1f, 1f)
+        );
+        
+        rb.AddForce(totalForce, ForceMode.Impulse);
+        
+        // Add spinning torque
+        Vector3 torque = new Vector3(
+            Random.Range(-torqueForce, torqueForce),
+            Random.Range(-torqueForce, torqueForce),
+            Random.Range(-torqueForce, torqueForce)
+        );
+        rb.AddTorque(torque, ForceMode.Impulse);
+        
+        Debug.Log($"Applied group physics to {group.name}: force={totalForce}, torque={torque}");
+        
+        // Destroy the group after some time
+        Destroy(group, pieceLifetime);
+    }
+
+    void KillEnemyInstantly(GameObject enemy)
+    {
+        // Try to get the LegoEnemy component and stop all its systems
+        LegoEnemy legoEnemy = enemy.GetComponent<LegoEnemy>();
+        if (legoEnemy != null)
+        {
+            Debug.Log($"Instantly killing LegoEnemy {enemy.name} - stopping all systems");
+            
+            // Stop all weapon group shooting coroutines using reflection
+            System.Reflection.FieldInfo weaponGroupsField = typeof(LegoEnemy).GetField("weaponGroups", 
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            
+            if (weaponGroupsField != null)
+            {
+                List<WeaponGroup> weaponGroups = (List<WeaponGroup>)weaponGroupsField.GetValue(legoEnemy);
+                if (weaponGroups != null)
+                {
+                    foreach (WeaponGroup group in weaponGroups)
+                    {
+                        if (group.shootCoroutine != null)
+                        {
+                            legoEnemy.StopCoroutine(group.shootCoroutine);
+                            group.shootCoroutine = null;
+                        }
+                    }
+                }
+            }
+            
+            // Set health to 0 using reflection
+            System.Reflection.FieldInfo healthField = typeof(LegoEnemy).GetField("currentHealth", 
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            if (healthField != null)
+            {
+                healthField.SetValue(legoEnemy, 0);
+            }
+            
+            // Disable the enemy component
+            legoEnemy.enabled = false;
+        }
+        else
+        {
+            // Try to find LegoEnemy on parent objects
+            LegoEnemy parentLegoEnemy = enemy.GetComponentInParent<LegoEnemy>();
+            if (parentLegoEnemy != null)
+            {
+                Debug.Log($"Instantly killing parent LegoEnemy of {enemy.name}");
+                KillEnemyInstantly(parentLegoEnemy.gameObject);
+            }
         }
     }
 
@@ -356,19 +539,60 @@ public class ChainsawWeapon : MonoBehaviour
     {
         List<GameObject> parts = new List<GameObject>();
         
-        // Add the enemy itself if it has a renderer
-        if (enemy.GetComponent<Renderer>() != null)
+        // Get the LegoEnemy component to access its parts properly
+        LegoEnemy legoEnemy = enemy.GetComponent<LegoEnemy>();
+        if (legoEnemy != null)
         {
-            parts.Add(enemy);
+            // Use reflection to access the colliderParts list
+            System.Reflection.FieldInfo colliderPartsField = typeof(LegoEnemy).GetField("colliderParts", 
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            
+            if (colliderPartsField != null)
+            {
+                List<GameObject> colliderParts = (List<GameObject>)colliderPartsField.GetValue(legoEnemy);
+                if (colliderParts != null)
+                {
+                    parts.AddRange(colliderParts);
+                }
+            }
+            
+            // Also get weapon group parts
+            System.Reflection.FieldInfo weaponGroupsField = typeof(LegoEnemy).GetField("weaponGroups", 
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            
+            if (weaponGroupsField != null)
+            {
+                List<WeaponGroup> weaponGroups = (List<WeaponGroup>)weaponGroupsField.GetValue(legoEnemy);
+                if (weaponGroups != null)
+                {
+                    foreach (WeaponGroup group in weaponGroups)
+                    {
+                        if (group.parts != null)
+                        {
+                            parts.AddRange(group.parts);
+                        }
+                    }
+                }
+            }
         }
         
-        // Add all child objects with renderers
-        Renderer[] childRenderers = enemy.GetComponentsInChildren<Renderer>();
-        foreach (Renderer renderer in childRenderers)
+        // Fallback: if we couldn't get parts from LegoEnemy, get all child renderers
+        if (parts.Count == 0)
         {
-            if (renderer.gameObject != enemy && !parts.Contains(renderer.gameObject))
+            // Add the enemy itself if it has a renderer
+            if (enemy.GetComponent<Renderer>() != null)
             {
-                parts.Add(renderer.gameObject);
+                parts.Add(enemy);
+            }
+            
+            // Add all child objects with renderers
+            Renderer[] childRenderers = enemy.GetComponentsInChildren<Renderer>();
+            foreach (Renderer renderer in childRenderers)
+            {
+                if (renderer.gameObject != enemy && !parts.Contains(renderer.gameObject))
+                {
+                    parts.Add(renderer.gameObject);
+                }
             }
         }
         
@@ -377,95 +601,35 @@ public class ChainsawWeapon : MonoBehaviour
 
     Vector3 GetEnemyCenter(GameObject enemy)
     {
-        // Calculate the center of all renderers in the enemy
-        Renderer[] renderers = enemy.GetComponentsInChildren<Renderer>();
-        if (renderers.Length == 0)
+        // Get all parts and calculate their collective center
+        List<GameObject> parts = GetEnemyParts(enemy);
+        
+        if (parts.Count == 0)
             return enemy.transform.position;
         
-        Bounds combinedBounds = renderers[0].bounds;
-        for (int i = 1; i < renderers.Length; i++)
+        Vector3 totalPosition = Vector3.zero;
+        int validParts = 0;
+        
+        foreach (GameObject part in parts)
         {
-            combinedBounds.Encapsulate(renderers[i].bounds);
+            if (part != null)
+            {
+                totalPosition += part.transform.position;
+                validParts++;
+            }
         }
         
-        return combinedBounds.center;
-    }
-
-    Vector3 GetSliceNormal(GameObject enemy)
-    {
-        if (useRandomSliceAngle)
-        {
-            float randomAngle = Random.Range(minRandomAngle, maxRandomAngle);
-            return Quaternion.Euler(0, randomAngle, 0) * slicePlaneNormal;
-        }
-        return slicePlaneNormal;
-    }
-
-    void SliceObject(GameObject obj, Vector3 slicePosition, Vector3 sliceNormal)
-    {
-        // Create two halves of the object
-        GameObject upperHalf = CreateObjectHalf(obj, slicePosition, sliceNormal, true);
-        GameObject lowerHalf = CreateObjectHalf(obj, slicePosition, sliceNormal, false);
-        
-        // Add physics to the halves for dramatic effect
-        AddSlicePhysics(upperHalf, sliceNormal);
-        AddSlicePhysics(lowerHalf, -sliceNormal);
-        
-        // Hide original object
-        obj.SetActive(false);
-    }
-
-    GameObject CreateObjectHalf(GameObject original, Vector3 slicePosition, Vector3 sliceNormal, bool upperHalf)
-    {
-        // Create a copy of the original object
-        GameObject half = Instantiate(original);
-        half.name = original.name + (upperHalf ? "_Upper" : "_Lower");
-        
-        // Scale the half appropriately (simple approach - you might want more sophisticated slicing)
-        Vector3 scale = half.transform.localScale;
-        if (sliceNormal == Vector3.up || sliceNormal == Vector3.down)
-        {
-            scale.y *= 0.5f;
-            half.transform.localScale = scale;
-            
-            // Offset position
-            Vector3 offset = sliceNormal * (scale.y * 0.5f);
-            if (!upperHalf) offset = -offset;
-            half.transform.position = slicePosition + offset;
-        }
+        if (validParts > 0)
+            return totalPosition / validParts;
         else
-        {
-            // Handle other slice directions similarly
-            scale.x *= 0.5f;
-            half.transform.localScale = scale;
-            
-            Vector3 offset = sliceNormal * (scale.x * 0.5f);
-            if (!upperHalf) offset = -offset;
-            half.transform.position = slicePosition + offset;
-        }
-        
-        return half;
+            return enemy.transform.position;
     }
 
-    void AddSlicePhysics(GameObject half, Vector3 forceDirection)
+    void ApplySlicePhysics(GameObject part, Vector3 forceDirection, bool isTopHalf)
     {
-        // Add rigidbody if it doesn't exist
-        Rigidbody rb = half.GetComponent<Rigidbody>();
-        if (rb == null)
-        {
-            rb = half.AddComponent<Rigidbody>();
-        }
-        
-        // Add force to make the halves separate dramatically
-        Vector3 force = forceDirection * 5f + Vector3.up * 2f; // Upward and outward force
-        rb.AddForce(force, ForceMode.Impulse);
-        
-        // Add some random torque for spinning effect
-        Vector3 torque = new Vector3(Random.Range(-10f, 10f), Random.Range(-10f, 10f), Random.Range(-10f, 10f));
-        rb.AddTorque(torque, ForceMode.Impulse);
-        
-        // Destroy the half after a few seconds
-        Destroy(half, 5f);
+        // This method is no longer used since we now use groups
+        // Keeping it for backward compatibility but it shouldn't be called
+        Debug.LogWarning("ApplySlicePhysics called on individual part - this shouldn't happen with the new group system");
     }
 
     void DisablePlayerControl()
@@ -515,12 +679,15 @@ public class ChainsawWeapon : MonoBehaviour
             if (target != null)
             {
                 Vector3 targetCenter = GetEnemyCenter(target);
-                Vector3 sliceNormal = GetSliceNormal(target);
-                Vector3 slicePos = targetCenter + (sliceNormal * sliceOffset);
                 
                 Gizmos.color = Color.yellow;
-                Gizmos.DrawLine(slicePos - Vector3.right, slicePos + Vector3.right);
-                Gizmos.DrawLine(slicePos - Vector3.forward, slicePos + Vector3.forward);
+                // Draw horizontal slice line
+                Gizmos.DrawLine(targetCenter - transform.right * 2f, targetCenter + transform.right * 2f);
+                Gizmos.DrawLine(targetCenter - transform.forward * 2f, targetCenter + transform.forward * 2f);
+                
+                // Draw a marker for the root enemy
+                Gizmos.color = Color.green;
+                Gizmos.DrawWireCube(target.transform.position, Vector3.one * 0.5f);
             }
         }
     }

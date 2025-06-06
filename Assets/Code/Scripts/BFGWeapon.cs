@@ -19,7 +19,7 @@ public class BFGWeapon : MonoBehaviour
     public float projectileSpeed = 20f; // Speed at which projectile moves
     public float maxProjectileDistance = 100f; // Max distance from player before projectile is destroyed
     public float raycastDistance = 15f; // Distance to raycast to enemies from projectile
-    public float enemyDestructionTime = 3f; // Time in seconds before enemy is destroyed
+    public float enemyDestructionTime = 2f; // Time in seconds before enemy is destroyed (CHANGED FROM 3f to 2f)
     public LayerMask enemyLayerMask = -1; // What layers count as enemies
     public LayerMask obstacleLayerMask = -1; // What layers block raycasts to enemies
 
@@ -235,6 +235,8 @@ public class BFGWeapon : MonoBehaviour
                         firstTargetedTime = Time.time,
                         lastSeenTime = Time.time
                     };
+                    
+                    Debug.Log($"BFG started targeting enemy: {enemyCollider.gameObject.name}");
                 }
                 
                 // Create/update connection lightning quads
@@ -415,20 +417,52 @@ public class BFGWeapon : MonoBehaviour
 
     void DestroyEnemy(GameObject enemy, string enemyId, BFGProjectile projectile)
     {
-        Debug.Log($"BFG destroyed enemy: {enemy.name}");
+        Debug.Log($"BFG destroyed enemy: {enemy.name} after {enemyDestructionTime} seconds of lightning contact");
+        
+        // Try to get the LegoEnemy component and deal massive damage through its public interface
+        LegoEnemy legoEnemy = enemy.GetComponent<LegoEnemy>();
+        if (legoEnemy != null)
+        {
+            // Deal massive damage through the public OnPartHit method
+            // This will trigger all the proper death animations, explosions, etc.
+            // We'll call OnPartHit multiple times to ensure death regardless of current health
+            for (int i = 0; i < 10; i++) // Call multiple times to ensure death
+            {
+                legoEnemy.OnPartHit(enemy, null);
+            }
+        }
+        else
+        {
+            // Try to find LegoEnemy on parent objects
+            LegoEnemy parentLegoEnemy = enemy.GetComponentInParent<LegoEnemy>();
+            if (parentLegoEnemy != null)
+            {
+                // Deal massive damage through the public OnPartHit method
+                for (int i = 0; i < 10; i++) // Call multiple times to ensure death
+                {
+                    parentLegoEnemy.OnPartHit(enemy, null);
+                }
+            }
+            else
+            {
+                // If it's not a LegoEnemy at all, just destroy it directly
+                Debug.LogWarning($"Enemy {enemy.name} is not a LegoEnemy, destroying directly");
+                Destroy(enemy);
+            }
+        }
         
         // Remove from targeting
         RemoveEnemyTarget(projectile, enemyId);
-        
-        // Destroy the enemy
-        Destroy(enemy);
     }
 
     void RemoveEnemyTarget(BFGProjectile projectile, string enemyId)
     {
         // Remove targeting data
         if (projectile.targetedEnemies.ContainsKey(enemyId))
+        {
+            Debug.Log($"BFG stopped targeting enemy with ID: {enemyId}");
             projectile.targetedEnemies.Remove(enemyId);
+        }
         
         // Remove and destroy connection lightning quads
         if (projectile.enemyConnectionQuads.ContainsKey(enemyId))
